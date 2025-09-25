@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>贪吃蛇游戏</title>
+  <script src="https://cdn.jsdelivr.net/npm/p5@1.9.0/lib/p5.min.js"></script>
+  <style>
+    body { margin: 0; overflow: hidden; background-color: black; }
+  </style>
+</head>
+<body>
+<script>
+  let snake = [];
+  let snakeLength = 5;
+  let foods = []; // 多个食物
+  let maxSpeed = 5;
+  let particleRadius = 5;
+  let score = 0;
+  let whiteBalls = []; // 多个白色球体
+  let smoothingFactor = 0.1;
+  let rotationSpeed = 0.05; 
+  let startTime = 0;
+
+  function setup() {
+    createCanvas(windowWidth, windowHeight);
+    snake.push(new Particle(mouseX, mouseY, particleRadius, color(0, 255, 0))); 
+    for (let i = 1; i < snakeLength; i++) {
+      snake.push(new Particle(mouseX - i * 10, mouseY, random(3, 5), color(0, 255, 0))); 
+    }
+    frameRate(60);
+    startTime = millis();
+
+    // 每秒生成一个食物
+    setInterval(() => {
+      foods.push(createFood());
+    }, 1000);
+
+    // 每30秒生成一个聚合体（10个食物）
+    setInterval(() => {
+      let clusterX = random(width);
+      let clusterY = random(height);
+      for (let i = 0; i < 10; i++) {
+        let offsetX = random(-30, 30);
+        let offsetY = random(-30, 30);
+        foods.push(createFood(clusterX + offsetX, clusterY + offsetY));
+      }
+    }, 30000);
+
+    // 每30秒必然生成一个白色球体
+    setInterval(() => {
+      whiteBalls.push(new WhiteBall(random(width), random(height), random(30, 50)));
+    }, 30000);
+  }
+
+  function draw() {
+    background(0);
+    
+    // 更新蛇的位置（带旋转效果）
+    for (let i = snake.length - 1; i > 0; i--) {
+      let prevPos = snake[i - 1].pos.copy();
+      let angle = rotationSpeed * i;
+      let offsetX = cos(angle) * 5;
+      let offsetY = sin(angle) * 5;
+      snake[i].pos.x = lerp(snake[i].pos.x, prevPos.x + offsetX, smoothingFactor);
+      snake[i].pos.y = lerp(snake[i].pos.y, prevPos.y + offsetY, smoothingFactor);
+      snake[i].update();
+      snake[i].show();
+    }
+
+    // 蛇头平滑跟随鼠标
+    let head = snake[0];
+    let target = createVector(mouseX, mouseY);
+    head.pos.x = lerp(head.pos.x, target.x, smoothingFactor);
+    head.pos.y = lerp(head.pos.y, target.y, smoothingFactor);
+    head.show();
+
+    // 吃食物
+    for (let i = foods.length - 1; i >= 0; i--) {
+      if (head.pos.dist(foods[i].pos) < head.radius + foods[i].radius) {
+        let newParticle = new Particle(foods[i].pos.x, foods[i].pos.y, random(3, 5), color(0, 255, 0));
+        snake.push(newParticle);
+        score++;
+        foods.splice(i, 1); 
+      }
+    }
+
+    // 更新和绘制所有食物
+    for (let f of foods) {
+      f.update();
+      f.show();
+    }
+
+    // 白色球体逻辑
+    for (let w = whiteBalls.length - 1; w >= 0; w--) {
+      let wb = whiteBalls[w];
+      wb.update();
+      wb.show();
+
+      // 检查蛇的粒子是否进入白色球体
+      for (let i = snake.length - 1; i >= 0; i--) {
+        if (wb.isInside(snake[i])) {
+          snake.splice(i, 1);   // 删除粒子
+          wb.radius -= 1;       // 半径减 1
+          score -= 1;           // 分数减 1
+        }
+      }
+
+      // 蛇头进入球体，游戏结束
+      if (wb.isInside(head)) {
+        noLoop();
+        alert("游戏结束！");
+      }
+
+      // 引力
+      applyGravitationalAttraction(wb);
+
+      // 半径小于 10 消失
+      if (wb.radius < 10) {
+        whiteBalls.splice(w, 1);
+      }
+    }
+
+    // 分数显示
+    fill(255);
+    textSize(32);
+    text(`得分: ${score}`, 20, 40);
+  }
+
+  // 创建食物（保证颜色明亮，排除黑色/白色）
+  function createFood(x = random(width), y = random(height)) {
+    let col;
+    colorMode(HSB);
+    let hue = random(0, 360);
+    col = color(hue, 100, 50); // 高亮彩色
+    colorMode(RGB);
+    return new Food(x, y, random(3, 5), col);
+  }
+
+  // 白色球体类（带出现动画）
+  class WhiteBall {
+    constructor(x, y, r) {
+      this.pos = createVector(x, y);
+      this.velocity = createVector(random(-0.5, 0.5), random(-0.5, 0.5));
+      this.radius = r; 
+      this.alpha = 0;       // 初始透明度
+      this.fadeSpeed = 5;   // 每帧增加的透明度
+    }
+    update() {
+      this.pos.add(this.velocity);
+      if (this.pos.x < 0 || this.pos.x > width) this.velocity.x *= -1;
+      if (this.pos.y < 0 || this.pos.y > height) this.velocity.y *= -1;
+
+      // 出现动画：逐渐增加透明度
+      if (this.alpha < 255) {
+        this.alpha += this.fadeSpeed;
+        this.alpha = min(this.alpha, 255);
+      }
+    }
+    show() {
+      fill(255, this.alpha);
+      noStroke();
+      ellipse(this.pos.x, this.pos.y, this.radius * 2, this.radius * 2);
+    }
+    isInside(particle) {
+      return this.pos.dist(particle.pos) < this.radius;
+    }
+  }
+
+  // 引力函数
+  function applyGravitationalAttraction(whiteBall) {
+    for (let i = 0; i < snake.length; i++) {
+      let particle = snake[i];
+      let distance = whiteBall.pos.dist(particle.pos);
+      if (distance < whiteBall.radius) {
+        let strength = map(distance, 0, whiteBall.radius, 1, 0);
+        let direction = p5.Vector.sub(whiteBall.pos, particle.pos);
+        direction.normalize();
+        let force = direction.mult(strength * 0.1);
+        particle.applyForce(force);
+      }
+    }
+  }
+
+  // 食物类
+  class Food {
+    constructor(x, y, radius, col) {
+      this.pos = createVector(x, y);
+      this.velocity = createVector(random(-1, 1), random(-1, 1));
+      this.radius = radius;
+      this.color = col;
+    }
+    update() {
+      this.pos.add(this.velocity);
+      if (this.pos.x < 0 || this.pos.x > width) this.velocity.x *= -1;
+      if (this.pos.y < 0 || this.pos.y > height) this.velocity.y *= -1;
+    }
+    show() {
+      fill(this.color);
+      noStroke();
+      ellipse(this.pos.x, this.pos.y, this.radius * 2, this.radius * 2);
+    }
+  }
+
+  // 粒子类
+  class Particle {
+    constructor(x, y, radius, col = color(255)) {
+      this.pos = createVector(x, y);
+      this.velocity = createVector(0, 0);
+      this.acceleration = createVector(0, 0);
+      this.radius = radius;
+      this.color = col;
+    }
+    applyForce(force) {
+      this.acceleration.add(force);
+    }
+    update() {
+      this.velocity.add(this.acceleration);
+      this.velocity.limit(maxSpeed);
+      this.pos.add(this.velocity);
+      this.acceleration.mult(0);
+    }
+    show() {
+      fill(this.color);
+      noStroke();
+      ellipse(this.pos.x, this.pos.y, this.radius * 2, this.radius * 2);
+    }
+  }
+</script>
+</body>
+</html>
+
